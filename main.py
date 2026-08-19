@@ -32,6 +32,15 @@ def get_news():
             items.append(f"- {e.title} ({e.link})")
     return "\n".join(items)
 
+def clean_post(text):
+    for tag in ["</think>", "</think>"]:
+        if tag in text:
+            text = text.split(tag)[-1]
+    text = text.strip()
+    if len(text) > 4000:
+        text = text[:4000]
+    return text
+
 def groq_ask(prompt):
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
     try:
@@ -40,20 +49,24 @@ def groq_ask(prompt):
     except Exception as ex:
         print("models error:", ex)
         ids = []
-    bad = ["whisper", "guard", "safeguard"]
+    bad = ["whisper", "guard", "safeguard", "orpheus"]
     good = [i for i in ids if not any(b in i for b in bad)]
-    print("candidates:", good[:5])
-    for model in good[:5]:
+    preferred = ["groq/compound-mini", "groq/compound", "llama-3.1-8b-instant"]
+    candidates = [m for m in preferred if m in good] + [m for m in good if m not in preferred]
+    print("candidates:", candidates[:5])
+    for model in candidates[:5]:
         payload = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.7, "max_tokens": 2000}
         try:
             r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, proxies=PROXIES, timeout=60)
             if r.status_code != 200:
                 print(model, "->", r.status_code)
                 continue
-            text = r.json()["choices"][0]["message"]["content"]
-            if text and len(text.strip()) > 10:
-                print("model ok:", model)
+            raw = r.json()["choices"][0]["message"]["content"]
+            text = clean_post(raw)
+            if len(text) > 50:
+                print("model ok:", model, "len:", len(text))
                 return text
+            print(model, "too short after clean")
         except Exception as ex:
             print(model, "error:", ex)
     return None
@@ -72,10 +85,9 @@ prompt = f"""Ты — редактор позитивного новостног
 Игнорируй криминал, аварии и политику.
 Напиши пост для Telegram в тёплом стиле, 2-4 предложения, с эмодзи.
 В конце обязательно добавь: 🔗 Источник: [ссылка на новость]
-Максимум 1000 символов. Верни только текст поста."""
+Максимум 1000 символов. Верни только текст поста, без рассуждений."""
 post = groq_ask(prompt)
 if post:
     send_telegram(post)
 else:
     print("Groq: не удалось получить пост")
-
