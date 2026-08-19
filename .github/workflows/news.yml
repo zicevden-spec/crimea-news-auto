@@ -1,14 +1,16 @@
 ﻿name: Crimea News
 on:
   schedule:
-    - cron: '45 3 * * *'       # 06:45 МСК (Тихий дайджест)
-    - cron: '0 4 * * *'        # 07:00 МСК (Утро: погода + новость)
-    - cron: '0 5-18 * * *'     # 08:00 - 21:00 МСК (Только новость каждый час)
-    - cron: '0 19 * * *'       # 22:00 МСК (Вечер: прогноз на завтра + новость)
+    - cron: '45 3 * * *'
+    - cron: '0 4 * * *'
+    - cron: '0 5-18 * * *'
+    - cron: '0 19 * * *'
   workflow_dispatch:
 jobs:
   post:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,3 +21,4 @@ jobs:
         env:
           TELEGRAM_NEWS_BOT_TOKEN: ${{ secrets.TELEGRAM_NEWS_BOT_TOKEN }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
