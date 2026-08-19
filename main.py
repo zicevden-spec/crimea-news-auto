@@ -1,4 +1,4 @@
-﻿import os, json, requests, feedparser, html, re, sys, random
+﻿import os, json, requests, feedparser, html, re, sys, random, io
 from datetime import datetime, timezone, timedelta
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_NEWS_BOT_TOKEN", "")
@@ -7,7 +7,7 @@ CHANNEL = "@Crimea_frash_news"
 PROXIES = {"http": None, "https": None}
 
 FORMATS = [
-    {"name": "standard", "intro": "🌟 ПОЗИТИВ ДНЯ", "benefits_header": "🎯 Что это даёт жителям Крыма:", "benefits_items": ["• [пункт 1]", "• [пункт 2]", "• [пункт 3]"], "footer": " Делитесь с близкими! Перешлите это сообщение.\n🔗 Наш канал: @Crimea_frash_news"},
+    {"name": "standard", "intro": " ПОЗИТИВ ДНЯ", "benefits_header": "🎯 Что это даёт жителям Крыма:", "benefits_items": ["• [пункт 1]", "• [пункт 2]", "• [пункт 3]"], "footer": " Делитесь с близкими! Перешлите это сообщение.\n Наш канал: @Crimea_frash_news"},
     {"name": "friendly", "intro": "✨ ХОРОШАЯ НОВОСТЬ!", "benefits_header": "🌈 Почему это здорово:", "benefits_items": ["→ [пункт 1]", "→ [пункт 2]", "→ [пункт 3]"], "footer": " Расскажите об этом знакомым!\n✉️ Подписывайтесь: @Crimea_frash_news"},
     {"name": "compact", "intro": "📰 КРАТКО О ГЛАВНОМ", "benefits_header": "💡 Главное:", "benefits_items": ["✓ [пункт 1]", "✓ [пункт 2]", "✓ [пункт 3]"], "footer": "🔄 Поделитесь с друзьями!\n📲 Канал: @Crimea_frash_news"}
 ]
@@ -22,10 +22,17 @@ def send_telegram_text(text, silent=False):
 def send_telegram_photo(photo_url, caption, silent=False):
     try:
         print(f"Скачиваю картинку: {photo_url[:80]}...")
-        img_data = requests.get(photo_url, proxies=PROXIES, timeout=30).content
+        img_resp = requests.get(photo_url, proxies=PROXIES, timeout=30)
+        if img_resp.status_code != 200:
+            print(f"Не удалось скачать фото: {img_resp.status_code}")
+            send_telegram_text(caption + "\n\n(Картинка не загрузилась)", silent)
+            return
+        
+        # Отправляем как файл через files параметр
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-        payload = {"chat_id": CHANNEL, "photo": img_data, "caption": caption, "parse_mode": "HTML", "disable_notification": silent}
-        r = requests.post(url, data=payload, proxies=PROXIES, timeout=30)
+        files = {"photo": ("image.jpg", img_resp.content, "image/jpeg")}
+        data = {"chat_id": CHANNEL, "caption": caption, "parse_mode": "HTML", "disable_notification": "true" if silent else "false"}
+        r = requests.post(url, files=files, data=data, proxies=PROXIES, timeout=30)
         print(f"Telegram photo ({'ТИХО' if silent else 'ЗВУК'}):", r.status_code)
         if r.status_code != 200: print(r.text[:500])
     except Exception as e:
@@ -52,9 +59,9 @@ def get_weather(mode="morning"):
                 tmin = w["daily"]["temperature_2m_min"][1]
                 rain = w["daily"]["precipitation_probability_max"][1]
                 rain_icon = "🌧" if rain > 30 else "☀️"
-                lines.append(f" {name}: день {tmax}°, ночь {tmin}°, {rain_icon} дождь: {rain}%")
+                lines.append(f"📍 {name}: день {tmax}°, ночь {tmin}°, {rain_icon} дождь: {rain}%")
         except Exception:
-            lines.append(f"📍 {name}: нет данных")
+            lines.append(f" {name}: нет данных")
     return "\n".join(lines)
 
 def get_news(limit=10):
@@ -131,14 +138,14 @@ if hour == 6 and minute >= 45:
 
 elif hour == 7:
     print("=== 07:00: Утренняя погода + новость ===")
-    send_telegram_text(f"☀️ <b>ДОБРОЕ УТРО, КРЫМ!</b>\n\n🌤 Погода на сегодня:\n{get_weather('morning')}\n\nХорошего дня! #Крым #погода")
+    send_telegram_text(f"☀️ <b>ДОБРОЕ УТРО, КРЫМ!</b>\n\n Погода на сегодня:\n{get_weather('morning')}\n\nХорошего дня! #Крым #погода")
 
 elif 8 <= hour <= 21:
     print(f"=== {hour}:00: Ежечасная новость ===")
 
 elif hour == 22:
     print("=== 22:00: Вечерний прогноз + новость ===")
-    send_telegram_text(f" <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\nСладких снов! #Крым #прогноз")
+    send_telegram_text(f"🌙 <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\nСладких снов! #Крым #прогноз")
 
 else:
     print("Вне часов публикации (23:00 - 06:00). Выход.")
