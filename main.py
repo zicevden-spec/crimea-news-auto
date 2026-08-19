@@ -21,7 +21,7 @@ def get_weather():
     return f"🌤 Сейчас в Крыму: {t}°C. Днём до {tmax}°, ночью {tmin}°."
 
 def get_news():
-    with open("sources.json", encoding="utf-8") as f:
+    with open("sources.json", encoding="utf-8-sig") as f:
         cfg = json.load(f)
     items = []
     for src in cfg["sources"]:
@@ -78,3 +78,4 @@ if post:
     send_telegram(post)
 else:
     print("Groq: не удалось получить пост")
+
