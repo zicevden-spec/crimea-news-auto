@@ -1,10 +1,16 @@
 ﻿{
   "sources": [
     {
-      "name": "Крым.Реалии",
+      "name": "crimea-news",
       "url": "https://crimea-news.com/rss.xml",
-      "max_posts": 5,
-      "enabled": true
+      "enabled": true,
+      "max_posts": 20
+    },
+    {
+      "name": "vesti-k",
+      "url": "https://vesti-k.ru/rss/",
+      "enabled": true,
+      "max_posts": 20
     }
   ]
 }

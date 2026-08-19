@@ -24,11 +24,9 @@ def save_history(url):
         except: pass
     if url not in history:
         history.append(url)
-    history = history[-50:] # Храним только последние 50
+    history = history[-50:]
     with open(HIST_FILE, "w", encoding="utf-8") as f:
         json.dump({"posted_urls": history}, f, ensure_ascii=False, indent=2)
-    
-    # Тихий коммит, чтобы не запускать workflow заново
     os.system("git config --global user.email 'bot@crimea.local'")
     os.system("git config --global user.name 'Crimea Bot'")
     os.system("git add " + HIST_FILE)
@@ -70,18 +68,19 @@ def get_weather(mode="morning"):
         except: lines.append(f"📍 {name}: нет данных")
     return "\n".join(lines)
 
-def get_news(limit=20):
+def get_news(limit=20, source_filter=None):
     with open("sources.json", encoding="utf-8-sig") as f:
         cfg = json.load(f)
     items = []
     for src in cfg["sources"]:
         if not src.get("enabled", True): continue
+        if source_filter and src.get("name") != source_filter: continue
         feed = feedparser.parse(src["url"])
         for e in feed.entries[:src.get("max_posts", limit)]:
             image_url = None
             if hasattr(e, 'media_content') and e.media_content: image_url = e.media_content[0].get('url')
             elif hasattr(e, 'media_thumbnail') and e.media_thumbnail: image_url = e.media_thumbnail[0].get('url')
-            items.append({"title": e.title, "url": e.link, "image": image_url})
+            items.append({"title": e.title, "url": e.link, "image": image_url, "source": src.get("name")})
     return items
 
 def clean_post(text):
@@ -112,25 +111,32 @@ now_msk = datetime.now(msk_tz)
 hour, minute = now_msk.hour, now_msk.minute
 print(f"Текущее время МСК: {hour}:{minute:02d}")
 
+source_filter = None
 if hour == 6 and minute >= 45:
     print("=== 06:45: Тихий дайджест ===")
     items = get_news(15)
     prompt = f"Сделай краткий дайджест из 5 новостей.\nНовости: {chr(10).join([f'{i+1}. {x[\"title\"]}' for i,x in enumerate(items[:10])])}\nФормат:\n🌙 САМОЕ ИНТЕРЕСНОЕ ЗА НОЧЬ\n1. [Заголовок] — [1 предложение]\n...(всего 5 пунктов)"
     res = groq_ask(prompt)
     if res: send_telegram_text(html.escape(res), silent=True)
+    sys.exit(0)
 elif hour == 7:
     print("=== 07:00: Утро ===")
     send_telegram_text(f"☀️ <b>ДОБРОЕ УТРО, КРЫМ!</b>\n\n🌤 Погода:\n{get_weather('morning')}\n\nХорошего дня! #Крым #погода")
+elif hour in [12, 13, 14] and minute == 30:
+    print(f"=== {hour}:30: Новость из Вести-К ===")
+    source_filter = "vesti-k"
 elif 8 <= hour <= 21:
-    print(f"=== {hour}:00: Новость ===")
+    print(f"=== {hour}:00: Ежечасная новость ===")
 elif hour == 22:
     print("=== 22:00: Вечер ===")
     send_telegram_text(f"🌙 <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\nСладких снов! #Крым #прогноз")
+    sys.exit(0)
 else:
+    print("Вне часов публикации. Выход.")
     sys.exit(0)
 
 print("=== Генерация новости ===")
-all_items = get_news(20)
+all_items = get_news(20, source_filter)
 posted_urls = []
 if os.path.exists(HIST_FILE):
     try: posted_urls = json.load(open(HIST_FILE, "r", encoding="utf-8")).get("posted_urls", [])
@@ -138,7 +144,7 @@ if os.path.exists(HIST_FILE):
 
 fresh_items = [i for i in all_items if i["url"] not in posted_urls]
 if not fresh_items:
-    print("Все последние новости уже опубликованы. Ждём обновлений.")
+    print(f"Все последние новости ({source_filter or 'все'}) уже опубликованы. Ждём обновлений.")
     sys.exit(0)
 
 print(f"Найдено {len(fresh_items)} свежих новостей.")
