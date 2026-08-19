@@ -6,29 +6,10 @@ GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
 CHANNEL = "@Crimea_frash_news"
 PROXIES = {"http": None, "https": None}
 
-# === РАЗНООБРАЗИЕ ФОРМАТОВ ===
 FORMATS = [
-    {
-        "name": "standard",
-        "intro": "🌟 ПОЗИТИВ ДНЯ",
-        "benefits_header": " Что это даёт жителям Крыма:",
-        "benefits_items": ["• [пункт 1]", "• [пункт 2]", "• [пункт 3]"],
-        "footer": "💬 Делитесь с близкими! Перешлите это сообщение или расскажите друзьям.\n🔗 Наш канал: @Crimea_frash_news"
-    },
-    {
-        "name": "friendly",
-        "intro": "✨ ХОРОШАЯ НОВОСТЬ!",
-        "benefits_header": "🌈 Почему это здорово:",
-        "benefits_items": ["→ [пункт 1]", "→ [пункт 2]", "→ [пункт 3]"],
-        "footer": " Расскажите об этом знакомым — пусть тоже будут в курсе!\n✉️ Подписывайтесь: @Crimea_frash_news"
-    },
-    {
-        "name": "compact",
-        "intro": "📰 КРАТКО О ГЛАВНОМ",
-        "benefits_header": "💡 Главное:",
-        "benefits_items": ["✓ [пункт 1]", "✓ [пункт 2]", "✓ [пункт 3]"],
-        "footer": "🔄 Поделитесь с друзьями!\n Канал: @Crimea_frash_news"
-    }
+    {"name": "standard", "intro": "🌟 ПОЗИТИВ ДНЯ", "benefits_header": "🎯 Что это даёт жителям Крыма:", "benefits_items": ["• [пункт 1]", "• [пункт 2]", "• [пункт 3]"], "footer": " Делитесь с близкими! Перешлите это сообщение.\n🔗 Наш канал: @Crimea_frash_news"},
+    {"name": "friendly", "intro": "✨ ХОРОШАЯ НОВОСТЬ!", "benefits_header": "🌈 Почему это здорово:", "benefits_items": ["→ [пункт 1]", "→ [пункт 2]", "→ [пункт 3]"], "footer": " Расскажите об этом знакомым!\n✉️ Подписывайтесь: @Crimea_frash_news"},
+    {"name": "compact", "intro": "📰 КРАТКО О ГЛАВНОМ", "benefits_header": "💡 Главное:", "benefits_items": ["✓ [пункт 1]", "✓ [пункт 2]", "✓ [пункт 3]"], "footer": "🔄 Поделитесь с друзьями!\n📲 Канал: @Crimea_frash_news"}
 ]
 
 def send_telegram_text(text, silent=False):
@@ -39,11 +20,17 @@ def send_telegram_text(text, silent=False):
     if r.status_code != 200: print(r.text[:500])
 
 def send_telegram_photo(photo_url, caption, silent=False):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-    payload = {"chat_id": CHANNEL, "photo": photo_url, "caption": caption, "parse_mode": "HTML", "disable_notification": silent}
-    r = requests.post(url, json=payload, proxies=PROXIES, timeout=30)
-    print(f"Telegram photo ({'ТИХО' if silent else 'ЗВУК'}):", r.status_code)
-    if r.status_code != 200: print(r.text[:500])
+    try:
+        print(f"Скачиваю картинку: {photo_url[:80]}...")
+        img_data = requests.get(photo_url, proxies=PROXIES, timeout=30).content
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+        payload = {"chat_id": CHANNEL, "photo": img_data, "caption": caption, "parse_mode": "HTML", "disable_notification": silent}
+        r = requests.post(url, data=payload, proxies=PROXIES, timeout=30)
+        print(f"Telegram photo ({'ТИХО' if silent else 'ЗВУК'}):", r.status_code)
+        if r.status_code != 200: print(r.text[:500])
+    except Exception as e:
+        print(f"Ошибка с фото: {e}. Отправляю только текст.")
+        send_telegram_text(caption + "\n\n(Картинка не загрузилась)", silent)
 
 def get_weather(mode="morning"):
     cities = {"Севастополь": (44.6167, 33.5250), "Симферополь": (44.9521, 34.1024), "Ялта": (44.4958, 34.1569), "Керчь": (45.3564, 36.4670)}
@@ -65,7 +52,7 @@ def get_weather(mode="morning"):
                 tmin = w["daily"]["temperature_2m_min"][1]
                 rain = w["daily"]["precipitation_probability_max"][1]
                 rain_icon = "🌧" if rain > 30 else "☀️"
-                lines.append(f"📍 {name}: день {tmax}°, ночь {tmin}°, {rain_icon} дождь: {rain}%")
+                lines.append(f" {name}: день {tmax}°, ночь {tmin}°, {rain_icon} дождь: {rain}%")
         except Exception:
             lines.append(f"📍 {name}: нет данных")
     return "\n".join(lines)
@@ -78,7 +65,6 @@ def get_news(limit=10):
         if not src.get("enabled", True): continue
         feed = feedparser.parse(src["url"])
         for e in feed.entries[:src.get("max_posts", limit)]:
-            # Извлекаем картинку из RSS
             image_url = None
             if hasattr(e, 'media_content') and e.media_content:
                 image_url = e.media_content[0].get('url')
@@ -121,7 +107,6 @@ def groq_ask(prompt):
             continue
     return None
 
-# === ОПРЕДЕЛЯЕМ ВРЕМЯ ===
 msk_tz = timezone(timedelta(hours=3))
 now_msk = datetime.now(msk_tz)
 hour = now_msk.hour
@@ -129,7 +114,6 @@ minute = now_msk.minute
 
 print(f"Текущее время МСК: {hour}:{minute:02d}")
 
-# === ЛОГИКА ПО ВРЕМЕНИ ===
 if hour == 6 and minute >= 45:
     print("=== 06:45: Тихий ночной дайджест ===")
     items = get_news(limit=15)
@@ -154,19 +138,17 @@ elif 8 <= hour <= 21:
 
 elif hour == 22:
     print("=== 22:00: Вечерний прогноз + новость ===")
-    send_telegram_text(f"🌙 <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\nСладких снов! #Крым #прогноз")
+    send_telegram_text(f" <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\nСладких снов! #Крым #прогноз")
 
 else:
     print("Вне часов публикации (23:00 - 06:00). Выход.")
     sys.exit(0)
 
-# === ГЕНЕРАЦИЯ НОВОСТИ С РАЗНООБРАЗИЕМ ===
 print("=== Генерация новости с картинкой ===")
 items = get_news(limit=10)
 if not items:
     print("Нет новостей")
 else:
-    # Выбираем случайный формат
     fmt = random.choice(FORMATS)
     print(f"Используем формат: {fmt['name']}")
     
@@ -216,12 +198,11 @@ N: номер_новости
         post_text = html.escape(post_text)
         final = post_text + f'\n\n<a href="{chosen_url}">🔗 Ссылка на источник</a>'
         
-        # Отправляем с картинкой или без
-        if chosen_image:
-            print(f"Отправляю с картинкой: {chosen_image}")
-            send_telegram_photo(chosen_image, final[:1024], silent=False)  # Telegram limit for caption is 1024
+        if chosen_image and len(final) < 1000:
+            print(f"Отправляю с картинкой: {chosen_image[:80]}...")
+            send_telegram_photo(chosen_image, final, silent=False)
         else:
-            print("Картинки нет, отправляю текст")
+            print("Отправляю без картинки (или текст слишком длинный для фото)")
             send_telegram_text(final[:4000], silent=False)
     else:
         print("Groq: не удалось получить пост")
