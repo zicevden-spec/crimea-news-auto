@@ -133,7 +133,15 @@ source_filter = None
 if hour == 6 and minute >= 45:
     print("=== 06:45: Тихий дайджест ===")
     items = get_news(15)
-    prompt = f"Сделай краткий дайджест из 5 новостей.\nНовости: {chr(10).join([f'{i+1}. {x[\"title\"]}' for i,x in enumerate(items[:10])])}\nФормат:\n🌙 САМОЕ ИНТЕРЕСНОЕ ЗА НОЧЬ\n1. [Заголовок] — [1 предложение]\n...(всего 5 пунктов)"
+    news_lines = [f"{i+1}. {x['title']}" for i, x in enumerate(items[:10])]
+    news_text = "\n".join(news_lines)
+    prompt = f"""Сделай краткий дайджест из 5 новостей.
+Новости:
+{news_text}
+Формат:
+🌙 САМОЕ ИНТЕРЕСНОЕ ЗА НОЧЬ
+1. [Заголовок] — [1 предложение]
+...(всего 5 пунктов)"""
     res = groq_ask(prompt)
     if res: send_telegram_text(html.escape(res), silent=True)
     sys.exit(0)
@@ -174,9 +182,9 @@ print(f"Найдено {len(fresh_items)} свежих новостей.")
 fmt = random.choice(FORMATS)
 
 if is_latest_news:
-    # Берем только топ-3 самых свежих и просим выбрать первую
     target_items = fresh_items[:3]
-    news_list = "\n".join([f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(target_items)])
+    news_lines = [f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(target_items)]
+    news_list = "\n".join(news_lines)
     prompt = f"""Ты — редактор позитивного канала о Крыме.
 Вот самые свежие новости дня: {news_list}
 ЗАДАНИЕ:
@@ -194,7 +202,8 @@ N: номер_новости
 ---
 текст_поста"""
 else:
-    news_list = "\n".join([f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(fresh_items)])
+    news_lines = [f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(fresh_items)]
+    news_list = "\n".join(news_lines)
     prompt = f"""Ты — редактор позитивного канала о Крыме.
 Свежие новости: {news_list}
 ЗАДАНИЕ:
