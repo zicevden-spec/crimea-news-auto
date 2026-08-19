@@ -1,4 +1,4 @@
-﻿import os, json, requests, feedparser
+﻿import os, json, requests, feedparser, html, re
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_NEWS_BOT_TOKEN", "")
 GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -7,18 +7,31 @@ PROXIES = {"http": None, "https": None}
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    r = requests.post(url, json={"chat_id": CHANNEL, "text": text}, proxies=PROXIES, timeout=30)
+    payload = {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+    r = requests.post(url, json=payload, proxies=PROXIES, timeout=30)
     print("Telegram:", r.status_code)
     if r.status_code != 200:
-        print(r.text[:300])
+        print(r.text[:500])
 
 def get_weather():
-    url = "https://api.open-meteo.com/v1/forecast?latitude=44.95&longitude=34.10&current_weather=true&daily=temperature_2m_max,temperature_2m_min&timezone=Europe%2FSimferopol"
-    w = requests.get(url, proxies=PROXIES, timeout=30).json()
-    t = w["current_weather"]["temperature"]
-    tmax = w["daily"]["temperature_2m_max"][0]
-    tmin = w["daily"]["temperature_2m_min"][0]
-    return f"🌤 Сейчас в Крыму: {t}°C. Днём до {tmax}°, ночью {tmin}°."
+    cities = {
+        "Севастополь": (44.6167, 33.5250),
+        "Симферополь": (44.9521, 34.1024),
+        "Ялта": (44.4958, 34.1569),
+        "Керчь": (45.3564, 36.4670),
+    }
+    lines = []
+    for name, (lat, lon) in cities.items():
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m&daily=temperature_2m_max,temperature_2m_min&timezone=Europe%2FSimferopol"
+        try:
+            w = requests.get(url, proxies=PROXIES, timeout=30).json()
+            t = w["current"]["temperature_2m"]
+            tmax = w["daily"]["temperature_2m_max"][0]
+            tmin = w["daily"]["temperature_2m_min"][0]
+            lines.append(f"📍 {name}: <b>{t}°C</b> (день {tmax}°, ночь {tmin}°)")
+        except Exception as e:
+            lines.append(f"📍 {name}: нет данных")
+    return "\n".join(lines)
 
 def get_news():
     with open("sources.json", encoding="utf-8-sig") as f:
@@ -29,17 +42,16 @@ def get_news():
             continue
         feed = feedparser.parse(src["url"])
         for e in feed.entries[:src.get("max_posts", 5)]:
-            items.append(f"- {e.title} ({e.link})")
-    return "\n".join(items)
+            items.append({"title": e.title, "url": e.link})
+    return items
 
 def clean_post(text):
-    for tag in ["</think>", "</think>"]:
+    for tag in ["</think>"]:
         if tag in text:
             text = text.split(tag)[-1]
-    text = text.strip()
-    if len(text) > 4000:
-        text = text[:4000]
-    return text
+    if "```" in text:
+        text = re.sub(r"```[a-z]*\n?", "", text)
+    return text.strip()
 
 def groq_ask(prompt):
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
@@ -73,21 +85,70 @@ def groq_ask(prompt):
 
 print("=== Погода ===")
 weather = get_weather()
-send_telegram("☀️ ДОБРОЕ УТРО, КРЫМ!\n\n" + weather + "\n\nХорошего и тёплого дня! #Крым #погода")
+weather_post = f"☀️ <b>ДОБРОЕ УТРО, КРЫМ!</b>\n\n🌤 Погода на сегодня:\n{weather}\n\nХорошего и тёплого дня! #Крым #погода"
+send_telegram(weather_post)
 
 print("=== Новости ===")
-news = get_news()
-prompt = f"""Ты — редактор позитивного новостного канала о Крыме.
-Свежие новости:
-{news}
-
-Выбери ОДНУ самую добрую и полезную новость (благоустройство, спорт, культура, туризм, хорошие события).
-Игнорируй криминал, аварии и политику.
-Напиши пост для Telegram в тёплом стиле, 2-4 предложения, с эмодзи.
-В конце обязательно добавь: 🔗 Источник: [ссылка на новость]
-Максимум 1000 символов. Верни только текст поста, без рассуждений."""
-post = groq_ask(prompt)
-if post:
-    send_telegram(post)
+items = get_news()
+if not items:
+    print("Нет новостей")
 else:
-    print("Groq: не удалось получить пост")
+    news_list = "\n".join([f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(items)])
+    prompt = f"""Ты — редактор позитивного новостного Telegram-канала о Крыме.
+
+Свежие новости (пронумерованы):
+{news_list}
+
+ЗАДАНИЕ:
+1. Выбери ОДНУ самую добрую и полезную новость (благоустройство, спорт, культура, туризм, достижения, хорошие события).
+2. Строго игнорируй криминал, аварии, политику, конфликты, судебные дела.
+3. Напиши пост для Telegram в следующей структуре:
+
+🌟 ПОЗИТИВ ДНЯ
+
+📰 [Короткий цепляющий заголовок своими словами]
+
+[2-3 предложения: что произошло и почему это интересно, простыми словами]
+
+🎯 Что это даёт жителям Крыма:
+• [пункт 1]
+• [пункт 2]
+• [пункт 3]
+
+💬 Делитесь с близкими — пусть тоже порадуются!
+
+4. НЕ добавляй ссылку на источник — её добавит код.
+5. Верни ответ СТРОГО в формате:
+
+N: номер_новости
+---
+текст_поста
+
+Без пояснений, без markdown-блоков (```), без лишних слов."""
+
+    result = groq_ask(prompt)
+    if result:
+        lines = result.split("\n")
+        post_text = result
+        chosen_url = items[0]["url"]
+        if lines and lines[0].strip().startswith("N:"):
+            try:
+                n = int(lines[0].strip().split(":")[1].strip())
+                if 1 <= n <= len(items):
+                    chosen_url = items[n-1]["url"]
+                    sep_idx = -1
+                    for i, line in enumerate(lines[1:], 1):
+                        if line.strip() == "---":
+                            sep_idx = i
+                            break
+                    if sep_idx > 0:
+                        post_text = "\n".join(lines[sep_idx+1:]).strip()
+            except Exception as e:
+                print("parse error:", e)
+        post_text = html.escape(post_text)
+        final = post_text + f'\n\n<a href="{chosen_url}">🔗 Ссылка на источник</a>'
+        if len(final) > 4000:
+            final = final[:3990] + "..."
+        send_telegram(final)
+    else:
+        print("Groq: не удалось получить пост")
