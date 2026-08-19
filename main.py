@@ -8,6 +8,22 @@ CHANNEL = "@Crimea_frash_news"
 PROXIES = {"http": None, "https": None}
 HIST_FILE = "history.json"
 
+MOTIVATIONAL_PHRASES = [
+    "Каждый новый день — это шанс сделать что-то хорошее. Начни с улыбки! 😊",
+    "Маленькие шаги каждый день приводят к большим переменам. Верь в себя! 💪",
+    "Сегодня идеальный день, чтобы сделать кого-то счастливее. Начни с себя! ✨",
+    "Успех — это сумма маленьких усилий, повторяющихся изо дня в день. 🌱",
+    "Пусть этот день принесёт тебе новые возможности и приятные сюрпризы! 🌞"
+]
+
+CALM_THOUGHTS = [
+    "Спокойной ночи. Пусть завтрашний день принесёт только светлые мысли и добрые вести. 🌙",
+    "Отдыхай с лёгким сердцем. Всё, что должно случиться, случится в лучшее время. ✨",
+    "Ночь создана для того, чтобы отпустить тревоги и набраться сил для новых свершений. 🌌",
+    "Мудрость приходит в тишине. Пусть ваш сон будет крепким, а утро — добрым. 🦉",
+    "Закрой глаза и представь самое тёплое место. Завтра будет новый, прекрасный день. 💫"
+]
+
 FORMATS = [
     {"name": "standard", "intro": "🌟 ПОЗИТИВ ДНЯ", "benefits_header": "🎯 Что это даёт жителям Крыма:", "benefits_items": ["• [пункт 1]", "• [пункт 2]", "• [пункт 3]"], "footer": "💬 Делитесь с близкими! Перешлите это сообщение.\n🔗 Наш канал: @Crimea_frash_news"},
     {"name": "friendly", "intro": "✨ ХОРОШАЯ НОВОСТЬ!", "benefits_header": "🌈 Почему это здорово:", "benefits_items": ["→ [пункт 1]", "→ [пункт 2]", "→ [пункт 3]"], "footer": "💬 Расскажите об этом знакомым!\n✉️ Подписывайтесь: @Crimea_frash_news"},
@@ -111,7 +127,9 @@ now_msk = datetime.now(msk_tz)
 hour, minute = now_msk.hour, now_msk.minute
 print(f"Текущее время МСК: {hour}:{minute:02d}")
 
+is_latest_news = False
 source_filter = None
+
 if hour == 6 and minute >= 45:
     print("=== 06:45: Тихий дайджест ===")
     items = get_news(15)
@@ -121,16 +139,21 @@ if hour == 6 and minute >= 45:
     sys.exit(0)
 elif hour == 7:
     print("=== 07:00: Утро ===")
-    send_telegram_text(f"☀️ <b>ДОБРОЕ УТРО, КРЫМ!</b>\n\n🌤 Погода:\n{get_weather('morning')}\n\nХорошего дня! #Крым #погода")
+    motivational = random.choice(MOTIVATIONAL_PHRASES)
+    send_telegram_text(f"☀️ <b>ДОБРОЕ УТРО, КРЫМ!</b>\n\n{motivational}\n\n🌤 Погода на сегодня:\n{get_weather('morning')}\n\nХорошего дня! #Крым #погода")
+elif hour == 22 and minute == 0:
+    print("=== 22:00: Самая свежая новость ===")
+    is_latest_news = True
+elif hour == 22 and minute == 15:
+    print("=== 22:15: Вечерний прогноз и спокойной ночи ===")
+    calm_thought = random.choice(CALM_THOUGHTS)
+    send_telegram_text(f"🌙 <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\n{calm_thought}\n\nСладких снов, Крым! #Крым #спокойнойночи")
+    sys.exit(0)
 elif hour in [12, 13, 14] and minute == 30:
     print(f"=== {hour}:30: Новость из Вести-К ===")
     source_filter = "vesti-k"
 elif 8 <= hour <= 21:
     print(f"=== {hour}:00: Ежечасная новость ===")
-elif hour == 22:
-    print("=== 22:00: Вечер ===")
-    send_telegram_text(f"🌙 <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\nСладких снов! #Крым #прогноз")
-    sys.exit(0)
 else:
     print("Вне часов публикации. Выход.")
     sys.exit(0)
@@ -149,9 +172,30 @@ if not fresh_items:
 
 print(f"Найдено {len(fresh_items)} свежих новостей.")
 fmt = random.choice(FORMATS)
-news_list = "\n".join([f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(fresh_items)])
 
-prompt = f"""Ты — редактор позитивного канала о Крыме.
+if is_latest_news:
+    # Берем только топ-3 самых свежих и просим выбрать первую
+    target_items = fresh_items[:3]
+    news_list = "\n".join([f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(target_items)])
+    prompt = f"""Ты — редактор позитивного канала о Крыме.
+Вот самые свежие новости дня: {news_list}
+ЗАДАНИЕ:
+1. Выбери самую свежую (первую или вторую) добрую новость. Игнорируй криминал и политику.
+2. Структура:
+{fmt['intro']}
+📰 [Короткий заголовок]
+[2-3 предложения сути]
+{fmt['benefits_header']}
+{chr(10).join(fmt['benefits_items'])}
+{fmt['footer']}
+3. НЕ добавляй ссылку на источник.
+4. Верни СТРОГО:
+N: номер_новости
+---
+текст_поста"""
+else:
+    news_list = "\n".join([f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(fresh_items)])
+    prompt = f"""Ты — редактор позитивного канала о Крыме.
 Свежие новости: {news_list}
 ЗАДАНИЕ:
 1. Выбери ОДНУ добрую новость (благоустройство, спорт, культура, туризм). Игнорируй криминал и политику.
@@ -175,8 +219,9 @@ if result:
     if lines and lines[0].strip().startswith("N:"):
         try:
             n = int(lines[0].strip().split(":")[1].strip())
-            if 1 <= n <= len(fresh_items):
-                chosen = fresh_items[n-1]
+            target = target_items if is_latest_news else fresh_items
+            if 1 <= n <= len(target):
+                chosen = target[n-1]
                 chosen_url, chosen_image = chosen["url"], chosen.get("image")
                 sep = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), -1)
                 if sep > 0: post_text = "\n".join(lines[sep+1:]).strip()
