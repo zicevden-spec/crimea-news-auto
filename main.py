@@ -9,10 +9,10 @@ PROXIES = {"http": None, "https": None}
 HIST_FILE = "history.json"
 
 MOTIVATIONAL_PHRASES = [
-    "Каждый новый день — это шанс сделать что-то хорошее. Начни с улыбки! 😊",
-    "Маленькие шаги каждый день приводят к большим переменам. Верь в себя! 💪",
+    "Каждый новый день — это шанс сделать что-то хорошее. Начни с улыбки! ",
+    "Маленькие шаги каждый день приводят к большим переменам. Верь в себя! ",
     "Сегодня идеальный день, чтобы сделать кого-то счастливее. Начни с себя! ✨",
-    "Успех — это сумма маленьких усилий, повторяющихся изо дня в день. 🌱",
+    "Успех — это сумма маленьких усилий, повторяющихся изо дня в день. ",
     "Пусть этот день принесёт тебе новые возможности и приятные сюрпризы! 🌞"
 ]
 
@@ -54,6 +54,7 @@ def send_telegram_text(text, silent=False):
     payload = {"chat_id": CHANNEL, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True, "disable_notification": silent}
     r = requests.post(url, json=payload, proxies=PROXIES, timeout=30)
     print(f"Telegram text ({'ТИХО' if silent else 'ЗВУК'}):", r.status_code)
+    if r.status_code != 200: print(r.text[:500])
 
 def send_telegram_photo(photo_url, caption, silent=False):
     try:
@@ -66,6 +67,7 @@ def send_telegram_photo(photo_url, caption, silent=False):
         data = {"chat_id": CHANNEL, "caption": caption, "parse_mode": "HTML", "disable_notification": "true" if silent else "false"}
         r = requests.post(url, files=files, data=data, proxies=PROXIES, timeout=30)
         print(f"Telegram photo ({'ТИХО' if silent else 'ЗВУК'}):", r.status_code)
+        if r.status_code != 200: print(r.text[:500])
     except Exception as e:
         send_telegram_text(caption + "\n\n(Ошибка фото)", silent)
 
@@ -73,15 +75,24 @@ def get_weather(mode="morning"):
     cities = {"Севастополь": (44.6167, 33.5250), "Симферополь": (44.9521, 34.1024), "Ялта": (44.4958, 34.1569), "Керчь": (45.3564, 36.4670)}
     lines = []
     for name, (lat, lon) in cities.items():
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&{'current=temperature_2m&' if mode=='morning' else ''}daily=temperature_2m_max,temperature_2m_min{',precipitation_probability_max' if mode=='evening' else ''}&timezone=Europe%2FSimferopol"
+        if mode == "morning":
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m&daily=temperature_2m_max,temperature_2m_min&timezone=Europe%2FSimferopol"
+        else:
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Europe%2FSimferopol"
         try:
             w = requests.get(url, proxies=PROXIES, timeout=30).json()
             if mode == "morning":
-                lines.append(f"📍 {name}: <b>{w['current']['temperature_2m']}°C</b> (день {w['daily']['temperature_2m_max'][0]}°, ночь {w['daily']['temperature_2m_min'][0]}°)")
+                t = w["current"]["temperature_2m"]
+                tmax = w["daily"]["temperature_2m_max"][0]
+                tmin = w["daily"]["temperature_2m_min"][0]
+                lines.append(f"📍 {name}: <b>{t}°C</b> (день {tmax}°, ночь {tmin}°)")
             else:
+                tmax = w["daily"]["temperature_2m_max"][1]
+                tmin = w["daily"]["temperature_2m_min"][1]
                 rain = w["daily"]["precipitation_probability_max"][1]
-                lines.append(f"📍 {name}: день {w['daily']['temperature_2m_max'][1]}°, ночь {w['daily']['temperature_2m_min'][1]}°, {'🌧' if rain>30 else '☀️'} дождь: {rain}%")
-        except: lines.append(f"📍 {name}: нет данных")
+                rain_icon = "🌧" if rain > 30 else "☀️"
+                lines.append(f"📍 {name}: день {tmax}°, ночь {tmin}°, {rain_icon} дождь: {rain}%")
+        except: lines.append(f" {name}: нет данных")
     return "\n".join(lines)
 
 def get_news(limit=20, source_filter=None):
@@ -96,6 +107,11 @@ def get_news(limit=20, source_filter=None):
             image_url = None
             if hasattr(e, 'media_content') and e.media_content: image_url = e.media_content[0].get('url')
             elif hasattr(e, 'media_thumbnail') and e.media_thumbnail: image_url = e.media_thumbnail[0].get('url')
+            elif hasattr(e, 'enclosures') and e.enclosures:
+                for enc in e.enclosures:
+                    if enc.get('type', '').startswith('image/'):
+                        image_url = enc.get('url')
+                        break
             items.append({"title": e.title, "url": e.link, "image": image_url, "source": src.get("name")})
     return items
 
@@ -110,7 +126,8 @@ def groq_ask(prompt):
         m = requests.get("https://api.groq.com/openai/v1/models", headers=headers, proxies=PROXIES, timeout=15)
         ids = [x["id"] for x in m.json().get("data", [])] if m.status_code == 200 else []
     except: ids = []
-    good = [i for i in ids if not any(b in i for b in ["whisper", "guard", "safeguard", "orpheus"])]
+    bad = ["whisper", "guard", "safeguard", "orpheus"]
+    good = [i for i in ids if not any(b in i for b in bad)]
     preferred = ["groq/compound-mini", "groq/compound", "llama-3.1-8b-instant"]
     candidates = [m for m in preferred if m in good] + [m for m in good if m not in preferred]
     for model in candidates[:5]:
@@ -155,7 +172,7 @@ elif hour == 22 and minute == 0:
 elif hour == 22 and minute == 15:
     print("=== 22:15: Вечерний прогноз и спокойной ночи ===")
     calm_thought = random.choice(CALM_THOUGHTS)
-    send_telegram_text(f"🌙 <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\n{calm_thought}\n\nСладких снов, Крым! #Крым #спокойнойночи")
+    send_telegram_text(f" <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\n{calm_thought}\n\nСладких снов, Крым! #Крым #спокойнойночи")
     sys.exit(0)
 elif hour in [12, 13, 14] and minute == 30:
     print(f"=== {hour}:30: Новость из Вести-К ===")
@@ -235,13 +252,12 @@ if result:
                 sep = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), -1)
                 if sep > 0: post_text = "\n".join(lines[sep+1:]).strip()
         except: pass
-    
-    final = html.escape(post_text) + f'\n\n<a href="{chosen_url}">🔗 Ссылка на источник</a>'
+    post_text = html.escape(post_text)
+    final = post_text + f'\n\n<a href="{chosen_url}">🔗 Ссылка на источник</a>'
     if chosen_image and len(final) < 1000:
         send_telegram_photo(chosen_image, final, silent=False)
     else:
         send_telegram_text(final[:4000], silent=False)
-    
     save_history(chosen_url)
 else:
     print("Groq: не удалось получить пост")
