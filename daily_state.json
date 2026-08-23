@@ -3,5 +3,5 @@
   "digest": true,
   "morning": true,
   "latest_news": true,
-  "evening": false
+  "evening": true
 }
