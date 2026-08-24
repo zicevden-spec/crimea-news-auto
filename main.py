@@ -106,7 +106,7 @@ def clean_post(text):
     text = re.sub(r'(?s)<thinking>.*?</thinking>', '', text)
     
     # Если текст начинается с тега размышления, но не закрыт (обрыв лимита)
-    if text.strip().startswith('<think') or text.strip().startswith('<')
+    if text.strip().startswith('<think') or text.strip().startswith('<'):
     if "```" in text: text = re.sub(r"```[a-z]*\n?", "", text)
     return text.strip()
 
@@ -270,4 +270,5 @@ if result:
         os.system("git push")
 else:
     print("Groq: не удалось получить пост")
+
 
