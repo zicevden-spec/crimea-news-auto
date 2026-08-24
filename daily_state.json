@@ -1,7 +1,7 @@
 {
   "date": "2026-08-24",
   "digest": true,
-  "morning": false,
+  "morning": true,
   "latest_news": false,
   "evening": false
 }
