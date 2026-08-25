@@ -107,6 +107,7 @@ def clean_post(text):
     
     # Если текст начинается с тега размышления, но не закрыт (обрыв лимита)
     if text.strip().startswith('<think') or text.strip().startswith('<'):
+        return ""
     if "```" in text: text = re.sub(r"```[a-z]*\n?", "", text)
     return text.strip()
 
