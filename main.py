@@ -94,8 +94,49 @@ def get_news(limit=20, source_filter=None):
         feed = feedparser.parse(src["url"])
         for e in feed.entries[:src.get("max_posts", limit)]:
             image_url = None
-            if hasattr(e, 'media_content') and e.media_content: image_url = e.media_content[0].get('url')
-            elif hasattr(e, 'media_thumbnail') and e.media_thumbnail: image_url = e.media_thumbnail[0].get('url')
+            
+            # 1. Проверяем media_content (стандартный media:content)
+            if hasattr(e, 'media_content') and e.media_content:
+                for mc in e.media_content:
+                    url = mc.get('url')
+                    if url and ('image' in mc.get('type', '') or url.endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp'))):
+                        image_url = url
+                        break
+                if not image_url and e.media_content:
+                    image_url = e.media_content[0].get('url')
+            
+            # 2. Проверяем media_thumbnail (media:thumbnail)
+            if not image_url and hasattr(e, 'media_thumbnail') and e.media_thumbnail:
+                image_url = e.media_thumbnail[0].get('url')
+            
+            # 3. Проверяем enclosure (стандартный RSS enclosure для изображений)
+            if not image_url and hasattr(e, 'enclosures') and e.enclosures:
+                for enc in e.enclosures:
+                    href = getattr(enc, 'href', None) or getattr(enc, 'url', None) or getattr(enc, 'link', None)
+                    mime_type = getattr(enc, 'type', '')
+                    if href and ('image' in mime_type or href.endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp'))):
+                        image_url = href
+                        break
+            
+            # 4. Ищем изображение в HTML-контенте (summary или content)
+            if not image_url:
+                html_content = ''
+                if hasattr(e, 'summary'):
+                    html_content = e.summary
+                elif hasattr(e, 'content') and e.content:
+                    html_content = e.content[0].get('value', '')
+                elif hasattr(e, 'description'):
+                    html_content = e.description
+                
+                if html_content:
+                    img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', html_content, re.IGNORECASE)
+                    if img_match:
+                        image_url = img_match.group(1)
+            
+            # 5. Проверяем image в самом объекте entry (некоторые фиды так делают)
+            if not image_url and hasattr(e, 'image'):
+                image_url = getattr(e.image, 'href', None) or getattr(e.image, 'url', None)
+            
             items.append({"title": e.title, "url": e.link, "image": image_url, "source": src.get("name")})
     return items
 
