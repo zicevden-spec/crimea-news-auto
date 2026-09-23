@@ -176,141 +176,142 @@ now_msk = datetime.now(msk_tz)
 hour, minute = now_msk.hour, now_msk.minute
 print(f"Текущее время МСК: {hour}:{minute:02d}")
 
-is_latest_news = False
-source_filter = None
+if __name__ == "__main__":
+    is_latest_news = False
+    source_filter = None
 
-if hour == 6 and minute >= 45:
-    print("=== 06:45: Тихий дайджест ===")
-    items = get_news(15)
-    news_lines = [f"{i+1}. {x['title']}" for i, x in enumerate(items[:10])]
-    news_text = "\n".join(news_lines)
-    prompt = f"""Сделай краткий дайджест из 5 новостей.
-Новости:
-{news_text}
-Формат:
-🌙 САМОЕ ИНТЕРЕСНОЕ ЗА НОЧЬ
-1. [Заголовок] — [1 предложение]
-...(всего 5 пунктов)"""
-    res = groq_ask(prompt)
-    if res: send_telegram_text(html.escape(res), silent=True)
-    sys.exit(0)
-elif hour == 7:
-    print("=== 07:00: Утро ===")
-    motivational = random.choice(MOTIVATIONAL_PHRASES)
-    send_telegram_text(f"☀️ <b>ДОБРОЕ УТРО, КРЫМ!</b>\n\n{motivational}\n\n🌤 Погода на сегодня:\n{get_weather('morning')}\n\nХорошего дня! #Крым #погода")
-elif hour == 22 and minute == 0:
-    print("=== 22:00: Самая свежая новость ===")
-    is_latest_news = True
-elif hour == 22 and minute == 15:
-    print("=== 22:15: Вечерний прогноз и спокойной ночи ===")
-    calm_thought = random.choice(CALM_THOUGHTS)
-    send_telegram_text(f"🌙 <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\n{calm_thought}\n\nСладких снов, Крым! #Крым #спокойнойночи")
-    sys.exit(0)
-elif hour in [12, 13, 14] and minute == 30:
-    print(f"=== {hour}:30: Новость из Вести-К ===")
-    source_filter = "vesti-k"
-elif 8 <= hour <= 21:
-    print(f"=== {hour}:00: Ежечасная новость ===")
-else:
-    print("Вне часов публикации. Выход.")
-    sys.exit(0)
-
-print("=== Генерация новости ===")
-all_items = get_news(20, source_filter)
-posted_urls = []
-last_post_time = 0
-
-if os.path.exists(HIST_FILE):
-    try: 
-        hist_data = json.load(open(HIST_FILE, "r", encoding="utf-8"))
-        posted_urls = hist_data.get("posted_urls", [])
-        last_post_time = hist_data.get("last_post_time", 0)
-    except: pass
-
-# Защита от дублей: если пост уже был в последние 30 минут, пропускаем (кроме утра и вечера)
-if time.time() - last_post_time < 1800 and not is_latest_news and hour != 7:
-    print("Пост уже был в последние 30 минут, пропускаем")
-    sys.exit(0)
-
-fresh_items = [i for i in all_items if i["url"] not in posted_urls]
-if not fresh_items:
-    print(f"Все последние новости ({source_filter or 'все'}) уже опубликованы. Ждём обновлений.")
-    sys.exit(0)
-
-print(f"Найдено {len(fresh_items)} свежих новостей.")
-fmt = random.choice(FORMATS)
-
-if is_latest_news:
-    target_items = fresh_items[:3]
-    news_lines = [f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(target_items)]
-    news_list = "\n".join(news_lines)
-    prompt = f"""Ты — редактор позитивного канала о Крыме.
-Вот самые свежие новости дня: {news_list}
-ЗАДАНИЕ:
-1. Выбери самую свежую (первую или вторую) добрую новость. Игнорируй криминал и политику.
-2. Структура:
-{fmt['intro']}
-📰 [Короткий заголовок]
-[2-3 предложения сути]
-{fmt['benefits_header']}
-{chr(10).join(fmt['benefits_items'])}
-{fmt['footer']}
-3. НЕ добавляй ссылку на источник.
-4. Верни СТРОГО:
-N: номер_новости
----
-текст_поста"""
-else:
-    news_lines = [f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(fresh_items)]
-    news_list = "\n".join(news_lines)
-    prompt = f"""Ты — редактор позитивного канала о Крыме.
-Свежие новости: {news_list}
-ЗАДАНИЕ:
-1. Выбери ОДНУ добрую новость (благоустройство, спорт, культура, туризм). Игнорируй криминал и политику.
-2. Структура:
-{fmt['intro']}
-📰 [Короткий заголовок]
-[2-3 предложения сути]
-{fmt['benefits_header']}
-{chr(10).join(fmt['benefits_items'])}
-{fmt['footer']}
-3. НЕ добавляй ссылку на источник.
-4. Верни СТРОГО:
-N: номер_новости
----
-текст_поста"""
-
-result = groq_ask(prompt)
-if result:
-    lines = result.split("\n")
-    post_text, chosen_url, chosen_image = result, fresh_items[0]["url"], fresh_items[0].get("image")
-    if lines and lines[0].strip().startswith("N:"):
-        try:
-            n = int(lines[0].strip().split(":")[1].strip())
-            target = target_items if is_latest_news else fresh_items
-            if 1 <= n <= len(target):
-                chosen = target[n-1]
-                chosen_url, chosen_image = chosen["url"], chosen.get("image")
-            sep = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), -1)
-            if sep > 0: post_text = "\n".join(lines[sep+1:]).strip()
-        except: pass
-    final = html.escape(post_text) + f'\n\n<a href="{chosen_url}">🔗 Ссылка на источник</a>'
-    if chosen_image and len(final) < 1000:
-        send_telegram_photo(chosen_image, final, silent=False)
+    if hour == 6 and minute >= 45:
+        print("=== 06:45: Тихий дайджест ===")
+        items = get_news(15)
+        news_lines = [f"{i+1}. {x['title']}" for i, x in enumerate(items[:10])]
+        news_text = "\n".join(news_lines)
+        prompt = f"""Сделай краткий дайджест из 5 новостей.
+    Новости:
+    {news_text}
+    Формат:
+    🌙 САМОЕ ИНТЕРЕСНОЕ ЗА НОЧЬ
+    1. [Заголовок] — [1 предложение]
+    ...(всего 5 пунктов)"""
+        res = groq_ask(prompt)
+        if res: send_telegram_text(html.escape(res), silent=True)
+        sys.exit(0)
+    elif hour == 7:
+        print("=== 07:00: Утро ===")
+        motivational = random.choice(MOTIVATIONAL_PHRASES)
+        send_telegram_text(f"☀️ <b>ДОБРОЕ УТРО, КРЫМ!</b>\n\n{motivational}\n\n🌤 Погода на сегодня:\n{get_weather('morning')}\n\nХорошего дня! #Крым #погода")
+    elif hour == 22 and minute == 0:
+        print("=== 22:00: Самая свежая новость ===")
+        is_latest_news = True
+    elif hour == 22 and minute == 15:
+        print("=== 22:15: Вечерний прогноз и спокойной ночи ===")
+        calm_thought = random.choice(CALM_THOUGHTS)
+        send_telegram_text(f"🌙 <b>ПРОГНОЗ НА ЗАВТРА</b>\n\n{get_weather('evening')}\n\n{calm_thought}\n\nСладких снов, Крым! #Крым #спокойнойночи")
+        sys.exit(0)
+    elif hour in [12, 13, 14] and minute == 30:
+        print(f"=== {hour}:30: Новость из Вести-К ===")
+        source_filter = "vesti-k"
+    elif 8 <= hour <= 21:
+        print(f"=== {hour}:00: Ежечасная новость ===")
     else:
-        send_telegram_text(final[:4000], silent=False)
-    
-    save_history(chosen_url)
-    
-    # Сохраняем время публикации для защиты от дублей
+        print("Вне часов публикации. Выход.")
+        sys.exit(0)
+
+    print("=== Генерация новости ===")
+    all_items = get_news(20, source_filter)
+    posted_urls = []
+    last_post_time = 0
+
     if os.path.exists(HIST_FILE):
-        hist = json.load(open(HIST_FILE, "r", encoding="utf-8"))
-        hist["last_post_time"] = time.time()
-        json.dump(hist, open(HIST_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-        os.system("git add " + HIST_FILE)
-        os.system("git commit -m 'update timestamp [skip ci]'")
-        os.system("git push")
-else:
-    print("Groq: не удалось получить пост")
+        try: 
+            hist_data = json.load(open(HIST_FILE, "r", encoding="utf-8"))
+            posted_urls = hist_data.get("posted_urls", [])
+            last_post_time = hist_data.get("last_post_time", 0)
+        except: pass
+
+    # Защита от дублей: если пост уже был в последние 30 минут, пропускаем (кроме утра и вечера)
+    if time.time() - last_post_time < 1800 and not is_latest_news and hour != 7:
+        print("Пост уже был в последние 30 минут, пропускаем")
+        sys.exit(0)
+
+    fresh_items = [i for i in all_items if i["url"] not in posted_urls]
+    if not fresh_items:
+        print(f"Все последние новости ({source_filter or 'все'}) уже опубликованы. Ждём обновлений.")
+        sys.exit(0)
+
+    print(f"Найдено {len(fresh_items)} свежих новостей.")
+    fmt = random.choice(FORMATS)
+
+    if is_latest_news:
+        target_items = fresh_items[:3]
+        news_lines = [f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(target_items)]
+        news_list = "\n".join(news_lines)
+        prompt = f"""Ты — редактор позитивного канала о Крыме.
+    Вот самые свежие новости дня: {news_list}
+    ЗАДАНИЕ:
+    1. Выбери самую свежую (первую или вторую) добрую новость. Игнорируй криминал и политику.
+    2. Структура:
+    {fmt['intro']}
+    📰 [Короткий заголовок]
+    [2-3 предложения сути]
+    {fmt['benefits_header']}
+    {chr(10).join(fmt['benefits_items'])}
+    {fmt['footer']}
+    3. НЕ добавляй ссылку на источник.
+    4. Верни СТРОГО:
+    N: номер_новости
+    ---
+    текст_поста"""
+    else:
+        news_lines = [f"{i+1}. {x['title']} ({x['url']})" for i, x in enumerate(fresh_items)]
+        news_list = "\n".join(news_lines)
+        prompt = f"""Ты — редактор позитивного канала о Крыме.
+    Свежие новости: {news_list}
+    ЗАДАНИЕ:
+    1. Выбери ОДНУ добрую новость (благоустройство, спорт, культура, туризм). Игнорируй криминал и политику.
+    2. Структура:
+    {fmt['intro']}
+    📰 [Короткий заголовок]
+    [2-3 предложения сути]
+    {fmt['benefits_header']}
+    {chr(10).join(fmt['benefits_items'])}
+    {fmt['footer']}
+    3. НЕ добавляй ссылку на источник.
+    4. Верни СТРОГО:
+    N: номер_новости
+    ---
+    текст_поста"""
+
+    result = groq_ask(prompt)
+    if result:
+        lines = result.split("\n")
+        post_text, chosen_url, chosen_image = result, fresh_items[0]["url"], fresh_items[0].get("image")
+        if lines and lines[0].strip().startswith("N:"):
+            try:
+                n = int(lines[0].strip().split(":")[1].strip())
+                target = target_items if is_latest_news else fresh_items
+                if 1 <= n <= len(target):
+                    chosen = target[n-1]
+                    chosen_url, chosen_image = chosen["url"], chosen.get("image")
+                sep = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), -1)
+                if sep > 0: post_text = "\n".join(lines[sep+1:]).strip()
+            except: pass
+        final = html.escape(post_text) + f'\n\n<a href="{chosen_url}">🔗 Ссылка на источник</a>'
+        if chosen_image and len(final) < 1000:
+            send_telegram_photo(chosen_image, final, silent=False)
+        else:
+            send_telegram_text(final[:4000], silent=False)
+    
+        save_history(chosen_url)
+    
+        # Сохраняем время публикации для защиты от дублей
+        if os.path.exists(HIST_FILE):
+            hist = json.load(open(HIST_FILE, "r", encoding="utf-8"))
+            hist["last_post_time"] = time.time()
+            json.dump(hist, open(HIST_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+            os.system("git add " + HIST_FILE)
+            os.system("git commit -m 'update timestamp [skip ci]'")
+            os.system("git push")
+    else:
+        print("Groq: не удалось получить пост")
 
 
